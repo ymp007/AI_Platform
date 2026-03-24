@@ -1,0 +1,39 @@
+Vehicle Speed Monitor (SpeedMon) Specification
+1. Project Scope
+The SpeedMon module integrates 4-channel wheel speed sensors to provide a centralized, filtered vehicle speed for automotive ECUs.
+
+2. Interface Definition
+
+Input: 4x Wheel Speed (uint16), 4x Valid Flag (boolean).
+
+Output: Raw Average Speed, Filtered Speed, System Status, Moving Flag.
+
+Precision: 0.01 km/h per unit.
+
+Frequency: 10ms cycle.
+
+3. Functional Logic
+
+Validation: Use only sensor data where (valid == TRUE) and (value <= 250 km/h).
+
+Calculation: Compute arithmetic mean of all validated sensor inputs.
+
+Filtering: Implement a 5-sample Moving Average Filter. Support partial buffer averaging during startup.
+
+4. Business Rules & Priorities
+
+Overspeed (P1): Speed > 250 km/h.
+
+Mismatch (P2): Difference between any two valid sensors > 10 km/h.
+
+Sensor Error (P3): No valid sensor data available.
+
+Movement: Set "is_moving" to TRUE if Filtered Speed > 0.5 km/h; otherwise FALSE.
+
+5. Safety Requirements
+
+Perform NULL pointer checks on all inputs.
+
+Prevent division by zero during average calculation.
+
+Must be initialized via SpeedMon_Init before processing.
