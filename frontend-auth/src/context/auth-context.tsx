@@ -72,8 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem("auth_token", newToken);
       setToken(newToken);
       setUser(decoded);
-      // Clean redirect to avoid hydration mismatches
-      window.location.href = "/home";
+      router.push("/home");
     }
   };
 
@@ -81,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("auth_token");
     setToken(null);
     setUser(null);
-    window.location.href = "/login";
+    router.push("/login");
   };
 
   return (

@@ -106,3 +106,56 @@ export async function queryRAG(
     }),
   });
 }
+
+export interface AgenticPrompt {
+  id: string;
+  name: string;
+  description?: string;
+  prompt_content: string;
+  input_description?: string;
+  output_description?: string;
+  purpose?: string;
+  notes?: string;
+  created_at: string;
+  is_active: boolean;
+}
+
+export interface CreateAgenticPrompt {
+  name: string;
+  description?: string;
+  prompt_content: string;
+  input_description?: string;
+  output_description?: string;
+  purpose?: string;
+  notes?: string;
+}
+
+export async function createAgenticPrompt(prompt: CreateAgenticPrompt): Promise<AgenticPrompt> {
+  return apiFetch("/agentic-prompts", {
+    method: "POST",
+    body: JSON.stringify(prompt),
+  });
+}
+
+export async function getAgenticPrompts(): Promise<AgenticPrompt[]> {
+  return apiFetch("/agentic-prompts", { method: "GET" });
+}
+
+export async function getAgenticPrompt(id: string): Promise<AgenticPrompt> {
+  return apiFetch(`/agentic-prompts/${id}`, { method: "GET" });
+}
+
+export async function updateAgenticPrompt(id: string, data: Partial<CreateAgenticPrompt>): Promise<AgenticPrompt> {
+  return apiFetch(`/agentic-prompts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteAgenticPrompt(id: string): Promise<void> {
+  await apiFetch(`/agentic-prompts/${id}`, { method: "DELETE" });
+}
+
+export async function searchAgenticPrompts(query: string): Promise<AgenticPrompt[]> {
+  return apiFetch(`/agentic-prompts/search/${encodeURIComponent(query)}`, { method: "GET" });
+}

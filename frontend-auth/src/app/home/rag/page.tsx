@@ -1,11 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import Link from "next/link";
 import { useAuth } from "../../../context/auth-context";
-import { Button, Card, Badge, ProfileDropdown } from "../../../components/ui";
+import { Button, Card, Badge } from "../../../components/ui";
 import {
   FileText,
   Search,
@@ -16,10 +14,6 @@ import {
   Check,
   Send,
   Bot,
-  Settings,
-  ChevronRight,
-  Home,
-  Sparkles,
   RefreshCw,
   CheckSquare,
   Square,
@@ -35,8 +29,7 @@ import {
 } from "../../../lib/api";
 
 export default function RAGPage() {
-  const { user, logout, isLoading: authLoading } = useAuth();
-  const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth();
 
   const [documents, setDocuments] = useState<RAGDocument[]>([]);
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
@@ -142,25 +135,8 @@ export default function RAGPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  if (authLoading || !user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0b]">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-[#0066ff]/20 border-t-[#0066ff] rounded-full animate-spin mx-auto" />
-          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/30">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0a0a0b]">
-      <Sidebar activeTool="rag" />
-
-      <main className="flex-1 overflow-y-auto">
-        <Header user={user} logout={logout} />
-
-        <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-8 max-w-6xl mx-auto">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
             <Badge className="mb-4 bg-blue-500/10 text-blue-400 border-blue-500/20">AI Powered</Badge>
             <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Document RAG Tool</h1>
@@ -374,73 +350,6 @@ export default function RAGPage() {
               ))}
             </div>
           )}
-        </div>
-      </main>
     </div>
-  );
-}
-
-function Sidebar({ activeTool }: { activeTool: string }) {
-  const router = useRouter();
-
-  const navItems = [
-    { id: "home", label: "Dashboard", icon: Home, href: "/home" },
-    { id: "rag", label: "Document RAG", icon: FileText, href: "/home/rag" },
-    { id: "agents", label: "Agentic Tools", icon: Bot, href: "/home/agents" },
-    { id: "inventory", label: "AI Inventory", icon: Settings, href: "/home/inventory" },
-    { id: "files", label: "File Processing", icon: Upload, href: "/home/files" },
-    { id: "api", label: "API Management", icon: Settings, href: "/home/api" },
-  ];
-
-  return (
-    <aside className="hidden md:flex flex-col w-72 border-r border-white/[0.05] bg-white/[0.02]">
-      <div className="p-6 border-b border-white/[0.05]">
-        <Link href="/home" className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-[#0066ff] to-[#00d4ff] rounded-xl flex items-center justify-center shadow-lg shadow-[#0066ff]/30">
-            <Sparkles className="text-white" size={20} />
-          </div>
-          <div>
-            <span className="text-lg font-bold tracking-tight">ITSP</span>
-            <p className="text-[10px] text-white/30 uppercase tracking-[0.2em] font-black">AI platform</p>
-          </div>
-        </Link>
-      </div>
-
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-        {navItems.map((item) => {
-          const isActive = activeTool === item.id;
-          return (
-            <Link
-              key={item.id}
-              href={item.href}
-              className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all relative ${
-                isActive
-                  ? "bg-[#0066ff]/10 text-[#0066ff]"
-                  : "text-white/40 hover:text-white hover:bg-white/[0.03]"
-              }`}
-            >
-              {isActive && <div className="absolute left-0 w-1 h-8 bg-[#0066ff] rounded-r-full" />}
-              {(() => {
-                const Icon = item.icon;
-                return <Icon size={18} />;
-              })()}
-              <span className="text-xs font-bold uppercase tracking-wider">{item.label}</span>
-              <ChevronRight className={`w-4 h-4 ml-auto opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? "opacity-100" : ""}`} />
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
-  );
-}
-
-function Header({ user, logout }: { user: any; logout: () => void }) {
-  return (
-    <header className="sticky top-0 z-10 px-6 py-4 bg-[#0a0a0b]/80 backdrop-blur-xl border-b border-white/[0.05] flex items-center justify-between">
-      <div className="text-sm text-white/40">
-        <span className="text-white/60">Document RAG</span>
-      </div>
-      <ProfileDropdown user={user} logout={logout} />
-    </header>
   );
 }

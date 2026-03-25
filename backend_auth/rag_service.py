@@ -10,7 +10,7 @@ current_dir = os.path.dirname(__file__)
 env_paths = [
     os.path.join(current_dir, ".env"),
     os.path.join(os.getcwd(), ".env"),
-    ".env"
+    ".env",
 ]
 
 for env_path in env_paths:
@@ -49,6 +49,7 @@ class QueryRequest(BaseModel):
     query: str
     document_ids: Optional[List[str]] = None
     top_k: int = 5
+    system_prompt: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -57,13 +58,20 @@ class QueryResponse(BaseModel):
 
 
 class RAGService:
-    def __init__(self, storage_dir: str = "./rag_data"):
+    def __init__(self, storage_dir: str = None):
+        if storage_dir is None:
+            base_dir = Path(__file__).parent
+            storage_dir = base_dir / "rag_data"
+
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(exist_ok=True)
 
         self._init_azure_client()
         self._init_vector_store()
         self._init_embeddings()
+
+        existing_docs = self._get_existing_documents_count()
+        logger.info(f"RAG Service initialized. Existing documents: {existing_docs}")
 
     def _init_azure_client(self):
         """Initialize Azure OpenAI client via Langchain"""
@@ -108,23 +116,71 @@ class RAGService:
         )
         logger.info("Chroma vector store initialized")
 
+    _cached_embedding = None
+    _cached_node_parser = None
+
     def _init_embeddings(self):
-        """Initialize HuggingFace embeddings"""
-        self.embedding = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={"device": "cpu"},
-        )
+        """Initialize HuggingFace embeddings with caching"""
+        if RAGService._cached_embedding is None:
+            logger.info("Loading HuggingFace embedding model...")
+            RAGService._cached_embedding = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={"device": "cpu"},
+            )
+            logger.info("HuggingFace embedding model loaded and cached")
 
-        from llama_index.core.node_parser import MarkdownElementNodeParser
+        self.embedding = RAGService._cached_embedding
 
-        self.node_parser = MarkdownElementNodeParser(
-            chunk_size=1024,
-            chunk_overlap=200,
-        )
-        logger.info("HuggingFace embeddings initialized")
+        if RAGService._cached_node_parser is None:
+            from llama_index.core.node_parser import MarkdownElementNodeParser
+
+            RAGService._cached_node_parser = MarkdownElementNodeParser(
+                chunk_size=1024,
+                chunk_overlap=200,
+            )
+
+        self.node_parser = RAGService._cached_node_parser
+        logger.info("HuggingFace embeddings initialized (using cached model)")
+
+    def _get_existing_documents_count(self) -> int:
+        """Get count of existing documents in ChromaDB"""
+        try:
+            all_items = self.collection.get()
+            if not all_items or not all_items.get("metadatas"):
+                return 0
+            unique_docs = set()
+            for metadata in all_items.get("metadatas", []):
+                if metadata and metadata.get("document_id"):
+                    unique_docs.add(metadata.get("document_id"))
+            return len(unique_docs)
+        except Exception as e:
+            logger.warning(f"Error getting document count: {e}")
+            return 0
+
+    def _document_exists(self, file_name: str) -> str | None:
+        """Check if document already exists by filename. Returns document_id if exists."""
+        try:
+            all_items = self.collection.get()
+            if not all_items or not all_items.get("metadatas"):
+                return None
+
+            for i, metadata in enumerate(all_items.get("metadatas", [])):
+                if metadata and metadata.get("document_name") == file_name:
+                    return metadata.get("document_id")
+            return None
+        except Exception as e:
+            logger.warning(f"Error checking document existence: {e}")
+            return None
 
     def load_document(self, file_path: str, file_content: bytes, file_name: str) -> str:
         """Load and index a document"""
+        existing_doc_id = self._document_exists(file_name)
+        if existing_doc_id:
+            logger.info(
+                f"Document {file_name} already indexed with ID: {existing_doc_id}. Skipping re-embedding."
+            )
+            return existing_doc_id
+
         document_id = str(uuid.uuid4())
 
         temp_dir = self.storage_dir / "temp" / document_id
@@ -184,19 +240,19 @@ class RAGService:
         try:
             pdf_reader = pypdf.PdfReader(str(file_path))
             text_content = ""
-            
+
             for page_num, page in enumerate(pdf_reader.pages):
                 text = page.extract_text()
                 if text:
                     text_content += f"\n\n[Page {page_num + 1}]\n{text}"
-            
+
             if text_content.strip():
                 doc = Document(text=text_content, metadata={"source": file_name})
                 documents.append(doc)
         except Exception as e:
             logger.error(f"Error reading PDF {file_name}: {str(e)}")
             raise
-        
+
         return documents
 
     def _load_docx(self, file_path: Path, file_name: str) -> List[Document]:
@@ -205,12 +261,12 @@ class RAGService:
         try:
             docx_doc = DocxDocument(str(file_path))
             text_content = ""
-            
+
             # Extract text from paragraphs
             for paragraph in docx_doc.paragraphs:
                 if paragraph.text.strip():
                     text_content += paragraph.text + "\n"
-            
+
             # Extract text from tables
             for table in docx_doc.tables:
                 for row in table.rows:
@@ -218,14 +274,14 @@ class RAGService:
                         if cell.text.strip():
                             text_content += cell.text + " "
                     text_content += "\n"
-            
+
             if text_content.strip():
                 doc = Document(text=text_content, metadata={"source": file_name})
                 documents.append(doc)
         except Exception as e:
             logger.error(f"Error reading DOCX {file_name}: {str(e)}")
             raise
-        
+
         return documents
 
     def _load_text(self, file_path: Path, file_name: str) -> List[Document]:
@@ -234,7 +290,7 @@ class RAGService:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 text_content = f.read()
-            
+
             if text_content.strip():
                 doc = Document(text=text_content, metadata={"source": file_name})
                 documents.append(doc)
@@ -242,14 +298,14 @@ class RAGService:
             # Fallback to binary read if UTF-8 fails
             with open(file_path, "rb") as f:
                 text_content = f.read().decode("utf-8", errors="ignore")
-            
+
             if text_content.strip():
                 doc = Document(text=text_content, metadata={"source": file_name})
                 documents.append(doc)
         except Exception as e:
             logger.error(f"Error reading text file {file_name}: {str(e)}")
             raise
-        
+
         return documents
 
     def _store_in_chroma(self, nodes: List[TextNode], document_id: str):
@@ -303,34 +359,44 @@ class RAGService:
         """Delete a document and its chunks"""
         try:
             all_items = self.collection.get()
-            
+
             if not all_items or not all_items.get("metadatas"):
                 logger.warning(f"No items found in collection for deletion")
                 return True  # Nothing to delete, consider it success
-            
+
             # Find all chunk IDs that belong to this document
             ids_to_delete = []
             for i, metadata in enumerate(all_items.get("metadatas", [])):
                 if metadata and metadata.get("document_id") == document_id:
                     if i < len(all_items.get("ids", [])):
                         ids_to_delete.append(all_items["ids"][i])
-            
-            logger.info(f"Found {len(ids_to_delete)} chunks to delete for document {document_id}")
-            
+
+            logger.info(
+                f"Found {len(ids_to_delete)} chunks to delete for document {document_id}"
+            )
+
             # Delete the chunks if any were found
             if ids_to_delete:
                 self.collection.delete(ids=ids_to_delete)
-                logger.info(f"Successfully deleted {len(ids_to_delete)} chunks for document {document_id}")
+                logger.info(
+                    f"Successfully deleted {len(ids_to_delete)} chunks for document {document_id}"
+                )
             else:
                 logger.warning(f"No chunks found for document {document_id}")
-            
+
             return True
         except Exception as e:
-            logger.error(f"Error deleting document {document_id}: {str(e)}", exc_info=True)
+            logger.error(
+                f"Error deleting document {document_id}: {str(e)}", exc_info=True
+            )
             return False
 
     def query(
-        self, query_str: str, document_ids: Optional[List[str]] = None, top_k: int = 5
+        self,
+        query_str: str,
+        document_ids: Optional[List[str]] = None,
+        top_k: int = 5,
+        system_prompt: Optional[str] = None,
     ) -> QueryResponse:
         """Query the RAG system"""
         try:
@@ -370,7 +436,7 @@ class RAGService:
                 ]
             )
 
-            answer = self._generate_answer(query_str, context_text)
+            answer = self._generate_answer(query_str, context_text, system_prompt)
 
             sources = [
                 {
@@ -389,10 +455,31 @@ class RAGService:
             logger.error(f"Error querying: {str(e)}")
             return QueryResponse(answer=f"Error processing query: {str(e)}", sources=[])
 
-    def _generate_answer(self, query: str, context: str) -> str:
+    def _generate_answer(
+        self, query: str, context: str, system_prompt: Optional[str] = None
+    ) -> str:
         """Generate answer using Azure OpenAI via Langchain"""
-        prompt = PromptTemplate.from_template(
-            """You are a helpful AI assistant. Use the following context from documents to answer the question.
+        if system_prompt:
+            template = """{system_prompt}
+
+Context from documents:
+{context}
+
+Question: {question}
+
+Answer:"""
+            prompt = PromptTemplate.from_template(template)
+            chain = prompt | self.llm
+            response = chain.invoke(
+                {
+                    "system_prompt": system_prompt,
+                    "context": context,
+                    "question": query,
+                }
+            )
+        else:
+            prompt = PromptTemplate.from_template(
+                """You are a helpful AI assistant. Use the following context from documents to answer the question.
 
 Context:
 {context}
@@ -406,11 +493,10 @@ Instructions:
 - Cite the source documents in your answer
 
 Answer:"""
-        )
+            )
+            chain = prompt | self.llm
+            response = chain.invoke({"context": context, "question": query})
 
-        chain = prompt | self.llm
-
-        response = chain.invoke({"context": context, "question": query})
         return response.content.strip()
 
 

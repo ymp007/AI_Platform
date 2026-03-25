@@ -14,7 +14,7 @@ current_dir = os.path.dirname(__file__)
 env_paths = [
     os.path.join(current_dir, ".env"),
     os.path.join(os.getcwd(), ".env"),
-    ".env"
+    ".env",
 ]
 
 for env_path in env_paths:
@@ -137,7 +137,6 @@ async def upload_document(
 
 
 @app.delete("/api/rag/documents/{document_id}")
-@app.delete("/api/rag/documents/{document_id}")
 def delete_document(
     document_id: str, current_user: models.User = Depends(auth.get_current_user)
 ):
@@ -178,6 +177,151 @@ def query_documents(
     except Exception as e:
         logger.error(f"Error querying: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ AGENTIC PROMPT ENDPOINTS ============
+
+
+@app.post("/api/agentic-prompts", response_model=schemas.AgenticPromptResponse)
+def create_agentic_prompt(
+    prompt: schemas.AgenticPromptCreate,
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Create a new agentic prompt"""
+    try:
+        db = next(database.get_db())
+        db_prompt = crud.create_agentic_prompt(db, prompt)
+
+        import os
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = db_prompt.name.replace(" ", "-").lower()
+        filename = f"agent_prompts/generated/{safe_name}-{timestamp}.md"
+
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(db_prompt.prompt_content)
+
+        logger.info(f"Agentic prompt created: {db_prompt.id}")
+        return db_prompt
+    except Exception as e:
+        logger.error(f"Error creating agentic prompt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.get("/api/agentic-prompts", response_model=List[schemas.AgenticPromptResponse])
+def list_agentic_prompts(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """List all agentic prompts"""
+    try:
+        db = next(database.get_db())
+        prompts = crud.get_agentic_prompts(db, skip, limit)
+        return prompts
+    except Exception as e:
+        logger.error(f"Error listing agentic prompts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.get(
+    "/api/agentic-prompts/{prompt_id}", response_model=schemas.AgenticPromptResponse
+)
+def get_agentic_prompt(
+    prompt_id: str, current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get a specific agentic prompt"""
+    try:
+        db = next(database.get_db())
+        prompt = crud.get_agentic_prompt(db, prompt_id)
+        if not prompt:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        return prompt
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting agentic prompt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.put(
+    "/api/agentic-prompts/{prompt_id}", response_model=schemas.AgenticPromptResponse
+)
+def update_agentic_prompt(
+    prompt_id: str,
+    prompt: schemas.AgenticPromptUpdate,
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Update an agentic prompt"""
+    try:
+        db = next(database.get_db())
+        db_prompt = crud.update_agentic_prompt(db, prompt_id, prompt)
+        if not db_prompt:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+
+        import os
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = db_prompt.name.replace(" ", "-").lower()
+        filename = f"agent_prompts/generated/{safe_name}-{timestamp}.md"
+
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(db_prompt.prompt_content)
+
+        return db_prompt
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating agentic prompt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.delete("/api/agentic-prompts/{prompt_id}")
+def delete_agentic_prompt(
+    prompt_id: str, current_user: models.User = Depends(auth.get_current_user)
+):
+    """Delete (soft) an agentic prompt"""
+    try:
+        db = next(database.get_db())
+        db_prompt = crud.delete_agentic_prompt(db, prompt_id)
+        if not db_prompt:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        return {"status": "success", "message": "Prompt deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting agentic prompt: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.get("/api/agentic-prompts/search/{query}")
+def search_agentic_prompts(
+    query: str, current_user: models.User = Depends(auth.get_current_user)
+):
+    """Search agentic prompts by name or purpose"""
+    try:
+        db = next(database.get_db())
+        prompts = crud.search_agentic_prompts(db, query)
+        return prompts
+    except Exception as e:
+        logger.error(f"Error searching agentic prompts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":
