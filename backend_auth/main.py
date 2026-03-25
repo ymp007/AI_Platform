@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Optional, List
 from backend_auth import models, schemas, crud, auth, database
 from backend_auth.rag_service import get_rag_service, QueryRequest, QueryResponse
+from backend_auth.orchestrator import get_orchestrator
 import logging
 from dotenv import load_dotenv
 import os
@@ -322,6 +323,29 @@ def search_agentic_prompts(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+# ============ ORCHESTRATOR ENDPOINTS ============
+
+
+@app.post("/api/orchestrate", response_model=schemas.OrchestrationResponse)
+def orchestrate_request(
+    request: schemas.OrchestrationRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Orchestrate multiple agents to process a query"""
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.orchestrate(
+            query=request.query,
+            document_ids=request.document_ids,
+            agent_prompt_ids=request.agent_prompt_ids,
+            mode=request.mode,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error in orchestration: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

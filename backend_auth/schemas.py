@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 
@@ -61,3 +61,23 @@ class AgenticPromptResponse(AgenticPromptBase):
 
     class Config:
         from_attributes = True
+
+
+class OrchestrationRequest(BaseModel):
+    query: str
+    document_ids: Optional[List[str]] = None
+    agent_prompt_ids: Optional[List[str]] = None
+    mode: str = "auto"
+
+
+class AgentExecutionResult(BaseModel):
+    agent_name: str
+    agent_type: str
+    output: str
+    sources: Optional[List[Dict[str, Any]]] = None
+
+
+class OrchestrationResponse(BaseModel):
+    results: List[AgentExecutionResult]
+    final_output: str
+    selected_agents: List[str]

@@ -159,3 +159,34 @@ export async function deleteAgenticPrompt(id: string): Promise<void> {
 export async function searchAgenticPrompts(query: string): Promise<AgenticPrompt[]> {
   return apiFetch(`/agentic-prompts/search/${encodeURIComponent(query)}`, { method: "GET" });
 }
+
+export interface OrchestrationRequest {
+  query: string;
+  document_ids?: string[];
+  agent_prompt_ids?: string[];
+  mode?: string;
+}
+
+export interface AgentExecutionResult {
+  agent_name: string;
+  agent_type: string;
+  output: string;
+  sources?: Array<{
+    document_id: string;
+    document_name: string;
+    text: string;
+  }>;
+}
+
+export interface OrchestrationResponse {
+  results: AgentExecutionResult[];
+  final_output: string;
+  selected_agents: string[];
+}
+
+export async function orchestrateRequest(request: OrchestrationRequest): Promise<OrchestrationResponse> {
+  return apiFetch("/orchestrate", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
