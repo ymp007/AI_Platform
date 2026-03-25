@@ -6,63 +6,57 @@ import { useAuth } from "../../../context/auth-context";
 import { Button, Card, Badge } from "../../../components/ui";
 import {
   FileText,
-  Search,
   Upload,
   File,
   Trash2,
   Copy,
   Check,
-  Send,
-  Bot,
-  RefreshCw,
-  CheckSquare,
-  Square,
+  Zap,
+  X,
   Loader2,
   ArrowRight,
   Layers,
-  Zap,
-  X,
-  Plus,
-  Play,
-  Settings,
-  ChevronDown,
+  CheckSquare,
+  Square,
+  GitBranch,
+  GitFork,
+  ListOrdered,
+  Cpu,
+  RefreshCw,
 } from "lucide-react";
 import {
   getRAGDocuments,
   uploadRAGDocument,
   deleteRAGDocument,
-  queryRAG,
   getAgenticPrompts,
-  orchestrateRequest,
+  createExecutionPlan,
+  executeOrchestration,
   RAGDocument,
-  RAGQueryResponse,
   AgenticPrompt,
   OrchestrationResponse,
+  ExecutionPlan,
 } from "../../../lib/api";
 
 export default function RAGPage() {
   const { user, isLoading: authLoading } = useAuth();
 
   const [documents, setDocuments] = useState<RAGDocument[]>([]);
-  const [agenticPrompts, setAgenticPrompts] = useState<AgenticPrompt[]>([]);
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
-  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const [isLoadingDocs, setIsLoadingDocs] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [orchestratorMode, setOrchestratorMode] = useState<"simple" | "orchestrate">("simple");
 
   const [query, setQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResult, setSearchResult] = useState<RAGQueryResponse | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [executionPlan, setExecutionPlan] = useState<ExecutionPlan | null>(null);
   const [orchestrationResult, setOrchestrationResult] = useState<OrchestrationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showPipeline, setShowPipeline] = useState(false);
 
   useEffect(() => {
     if (!authLoading && user) {
       loadDocuments();
-      loadAgenticPrompts();
     }
   }, [authLoading, user]);
 
@@ -75,15 +69,6 @@ export default function RAGPage() {
       console.error("Failed to load documents:", err);
     } finally {
       setIsLoadingDocs(false);
-    }
-  };
-
-  const loadAgenticPrompts = async () => {
-    try {
-      const prompts = await getAgenticPrompts();
-      setAgenticPrompts(prompts);
-    } catch (err: any) {
-      console.error("Failed to load agentic prompts:", err);
     }
   };
 
@@ -128,57 +113,33 @@ export default function RAGPage() {
     });
   };
 
-  const toggleAgentSelection = (agentId: string) => {
-    setSelectedAgents((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(agentId)) {
-        newSet.delete(agentId);
-      } else {
-        newSet.add(agentId);
-      }
-      return newSet;
-    });
-  };
-
-  const handleSimpleSearch = async () => {
-    if (!query.trim()) return;
-    setOrchestrationResult(null);
-    setIsSearching(true);
-    setError(null);
-    setSearchResult(null);
-
-    try {
-      const docIds = selectedDocs.size > 0 ? Array.from(selectedDocs) : undefined;
-      const result = await queryRAG(query, docIds);
-      setSearchResult(result);
-    } catch (err: any) {
-      setError(err.message || "Failed to process query");
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
   const handleOrchestrate = async () => {
     if (!query.trim()) return;
-    setSearchResult(null);
-    setIsSearching(true);
+    setIsExecuting(true);
     setError(null);
     setOrchestrationResult(null);
+    setShowPipeline(true);
 
     try {
       const docIds = selectedDocs.size > 0 ? Array.from(selectedDocs) : undefined;
-      const agentIds = selectedAgents.size > 0 ? Array.from(selectedAgents) : undefined;
-      const result = await orchestrateRequest({
+      
+      // First, get the execution plan
+      const plan = await createExecutionPlan({
         query,
         document_ids: docIds,
-        agent_prompt_ids: agentIds,
-        mode: selectedAgents.size > 0 ? "manual" : "auto",
+      });
+      setExecutionPlan(plan);
+      
+      // Then execute the orchestration
+      const result = await executeOrchestration({
+        query,
+        document_ids: docIds,
       });
       setOrchestrationResult(result);
     } catch (err: any) {
       setError(err.message || "Failed to orchestrate request");
     } finally {
-      setIsSearching(false);
+      setIsExecuting(false);
     }
   };
 
@@ -188,11 +149,29 @@ export default function RAGPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleSearch = () => {
-    if (orchestratorMode === "orchestrate") {
-      handleOrchestrate();
-    } else {
-      handleSimpleSearch();
+  const getFlowIcon = (flowType: string) => {
+    switch (flowType) {
+      case "sequential":
+        return <ListOrdered className="w-4 h-4" />;
+      case "parallel":
+        return <GitFork className="w-4 h-4" />;
+      case "hybrid":
+        return <Cpu className="w-4 h-4" />;
+      default:
+        return <Layers className="w-4 h-4" />;
+    }
+  };
+
+  const getFlowLabel = (flowType: string) => {
+    switch (flowType) {
+      case "sequential":
+        return "Sequential";
+      case "parallel":
+        return "Parallel (Fork-Join)";
+      case "hybrid":
+        return "Hybrid";
+      default:
+        return flowType;
     }
   };
 
@@ -200,36 +179,11 @@ export default function RAGPage() {
     <div className="p-8 max-w-7xl mx-auto">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
         <div className="flex items-center gap-4 mb-4">
-          <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/20">AI Powered</Badge>
-          <div className="flex gap-2 bg-white/5 rounded-lg p-1">
-            <button
-              onClick={() => { setOrchestratorMode("simple"); setSearchResult(null); setOrchestrationResult(null); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                orchestratorMode === "simple"
-                  ? "bg-blue-500/20 text-blue-400"
-                  : "text-white/40 hover:text-white"
-              }`}
-            >
-              Simple Search
-            </button>
-            <button
-              onClick={() => setOrchestratorMode("orchestrate")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                orchestratorMode === "orchestrate"
-                  ? "bg-purple-500/20 text-purple-400"
-                  : "text-white/40 hover:text-white"
-              }`}
-            >
-              <Zap size={14} />
-              Orchestrator
-            </button>
-          </div>
+          <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/20">AI Powered</Badge>
         </div>
-        <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Document RAG Tool</h1>
+        <h1 className="text-4xl font-bold tracking-tight text-white mb-2">Agent Orchestrator</h1>
         <p className="text-white/40">
-          {orchestratorMode === "simple"
-            ? "Ask questions about your documents using AI-powered retrieval."
-            : "Orchestrate multiple agents to process your documents with AI."}
+          AI automatically selects agents and decides execution flow (sequential, parallel, or hybrid)
         </p>
       </motion.div>
 
@@ -239,177 +193,142 @@ export default function RAGPage() {
         </div>
       )}
 
-      {/* Agent Selection Panel - Only in Orchestrator Mode */}
+      {/* Document Selection */}
+      <Card className="p-4 mb-6 bg-gradient-to-br from-purple-500/5 to-transparent border-purple-500/20">
+        <div className="flex items-center gap-2 mb-4">
+          <FileText className="w-4 h-4 text-purple-400" />
+          <span className="text-sm font-medium text-white">Select Documents (for RAG context)</span>
+        </div>
+        
+        <div className="flex flex-wrap gap-2">
+          {documents.length === 0 ? (
+            <span className="text-xs text-white/30">No documents indexed</span>
+          ) : (
+            documents.map((doc) => (
+              <button
+                key={doc.id}
+                onClick={() => toggleDocSelection(doc.id)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all ${
+                  selectedDocs.has(doc.id)
+                    ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                    : "bg-white/[0.03] text-white/60 border border-white/10 hover:border-white/20"
+                }`}
+              >
+                {selectedDocs.has(doc.id) ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
+                {doc.name}
+              </button>
+            ))
+          )}
+        </div>
+      </Card>
+
+      {/* Query Input */}
+      <Card className="p-6 mb-6 bg-gradient-to-br from-purple-500/5 to-transparent border-purple-500/20">
+        <div className="flex gap-4">
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleOrchestrate()}
+              placeholder="Enter your query - AI will auto-select agents and decide execution flow..."
+              className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-4 text-white placeholder:text-white/30 outline-none focus:border-purple-500/50 focus:ring-4 focus:ring-purple-500/10 transition-all"
+            />
+          </div>
+          <Button 
+            onClick={handleOrchestrate} 
+            disabled={isExecuting || !query.trim()} 
+            className="bg-purple-600 hover:bg-purple-700 px-8"
+          >
+            {isExecuting ? (
+              <RefreshCw className="w-5 h-5 animate-spin" />
+            ) : (
+              <>
+                <Zap className="w-4 h-4 mr-2" />
+                Orchestrate
+              </>
+            )}
+          </Button>
+        </div>
+      </Card>
+
+      {/* AI Decision Display */}
       <AnimatePresence>
-        {orchestratorMode === "orchestrate" && (
+        {showPipeline && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
             className="mb-6"
           >
-            <Card className="p-4 bg-gradient-to-br from-purple-500/5 to-transparent border-purple-500/20">
-              <div className="flex items-center gap-2 mb-4">
-                <Layers className="w-4 h-4 text-purple-400" />
-                <span className="text-sm font-medium text-white">Agent Pipeline</span>
-                <span className="text-xs text-white/40">(Select agents to run in sequence)</span>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Document Selection */}
-                <div>
-                  <p className="text-xs text-white/40 mb-2 uppercase tracking-wider">Documents (RAG)</p>
-                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                    {documents.length === 0 ? (
-                      <span className="text-xs text-white/30">No documents indexed</span>
-                    ) : (
-                      documents.map((doc) => (
-                        <button
-                          key={doc.id}
-                          onClick={() => toggleDocSelection(doc.id)}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all ${
-                            selectedDocs.has(doc.id)
-                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                              : "bg-white/[0.03] text-white/60 border border-white/10 hover:border-white/20"
-                          }`}
-                        >
-                          {selectedDocs.has(doc.id) ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
-                          {doc.name}
-                        </button>
-                      ))
-                    )}
-                  </div>
+            <Card className="p-4 bg-gradient-to-br from-purple-500/10 to-blue-500/10 border-purple-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-purple-400" />
+                  <span className="text-sm font-medium text-white">AI Execution Plan</span>
                 </div>
-
-                {/* Agentic Prompts Selection */}
-                <div>
-                  <p className="text-xs text-white/40 mb-2 uppercase tracking-wider">Agentic Tools</p>
-                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                    {agenticPrompts.length === 0 ? (
-                      <span className="text-xs text-white/30">No agents available</span>
-                    ) : (
-                      agenticPrompts.map((prompt) => (
-                        <button
-                          key={prompt.id}
-                          onClick={() => toggleAgentSelection(prompt.id)}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all ${
-                            selectedAgents.has(prompt.id)
-                              ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
-                              : "bg-white/[0.03] text-white/60 border border-white/10 hover:border-white/20"
-                          }`}
-                        >
-                          {selectedAgents.has(prompt.id) ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
-                          {prompt.name}
-                        </button>
-                      ))
-                    )}
+                {(orchestrationResult?.execution_plan || executionPlan) && (
+                  <div className={`flex items-center gap-2 px-3 py-1 rounded-lg text-xs ${
+                    (orchestrationResult?.execution_plan || executionPlan)?.flow_type === 'parallel' ? 'bg-blue-500/20 text-blue-400' :
+                    (orchestrationResult?.execution_plan || executionPlan)?.flow_type === 'hybrid' ? 'bg-amber-500/20 text-amber-400' :
+                    'bg-green-500/20 text-green-400'
+                  }`}>
+                    {getFlowIcon((orchestrationResult?.execution_plan || executionPlan)?.flow_type || 'sequential')}
+                    {getFlowLabel((orchestrationResult?.execution_plan || executionPlan)?.flow_type || 'sequential')}
                   </div>
-                </div>
+                )}
               </div>
 
-              {selectedAgents.size > 0 && (
-                <div className="mt-4 pt-4 border-t border-white/10">
-                  <p className="text-xs text-white/40 mb-2">Pipeline Order:</p>
+              {orchestrationResult || executionPlan ? (
+                <>
+                  <p className="text-xs text-white/60 mb-4">
+                    {(orchestrationResult?.execution_plan || executionPlan)?.description}
+                  </p>
+                  
+                  {/* Flow Visualization */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    {selectedDocs.size > 0 && (
-                      <>
-                        <span className="px-3 py-1 rounded-lg bg-blue-500/20 text-blue-400 text-xs">RAG Search</span>
-                        <ArrowRight className="w-4 h-4 text-white/20" />
-                      </>
-                    )}
-                    {Array.from(selectedAgents).map((agentId, idx) => {
-                      const agent = agenticPrompts.find(a => a.id === agentId);
+                    {(orchestrationResult?.execution_plan || executionPlan)?.nodes.map((node: any, idx: number) => {
+                      const nodes = (orchestrationResult?.execution_plan || executionPlan)?.nodes || [];
+                      const isParallel = node.parallel_group && 
+                        nodes.filter((n: any) => n.parallel_group === node.parallel_group).length > 1;
+                      const isFirstInParallel = isParallel && 
+                        nodes.findIndex((n: any) => n.parallel_group === node.parallel_group) === idx;
+                      
                       return (
-                        <span key={agentId} className="px-3 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs">
-                          {agent?.name || `Agent ${idx + 1}`}
-                        </span>
+                        <div key={node.id} className="flex items-center gap-2">
+                          {idx > 0 && !isFirstInParallel && (
+                            <ArrowRight className="w-4 h-4 text-white/30" />
+                          )}
+                          {idx > 0 && isFirstInParallel && (
+                            <GitBranch className="w-4 h-4 text-blue-400" />
+                          )}
+                          <div className={`px-3 py-2 rounded-lg text-xs border ${
+                            node.agent_type === 'rag' 
+                              ? 'bg-blue-500/20 border-blue-500/30 text-blue-300'
+                              : 'bg-purple-500/20 border-purple-500/30 text-purple-300'
+                          }`}>
+                            {node.agent_name}
+                          </div>
+                          {isParallel && idx === nodes.filter((n: any) => n.parallel_group === node.parallel_group).length - 1 && (
+                            <GitBranch className="w-4 h-4 text-green-400 rotate-180" />
+                          )}
+                        </div>
                       );
                     })}
-                    {selectedAgents.size > 1 && (
-                      <span className="text-xs text-white/30 ml-2">(Sequential execution)</span>
-                    )}
                   </div>
+                </>
+              ) : isExecuting ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                  <span className="text-xs text-white/40">AI is analyzing query and planning execution...</span>
                 </div>
-              )}
+              ) : null}
             </Card>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Search Input */}
-      <Card className="p-6 mb-8 bg-gradient-to-br from-blue-500/5 to-transparent border-blue-500/20">
-        <div className="flex gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" size={18} />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder={orchestratorMode === "orchestrate" 
-                ? "Ask and orchestrate agents to process..." 
-                : "Ask a question about your documents..."}
-              className="w-full bg-white/[0.03] border border-white/10 rounded-xl pl-12 pr-4 py-4 text-white placeholder:text-white/30 outline-none focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10 transition-all"
-            />
-          </div>
-          <Button 
-            onClick={handleSearch} 
-            disabled={isSearching || !query.trim()} 
-            className={orchestratorMode === "orchestrate" ? "bg-purple-600 hover:bg-purple-700 px-8" : "px-8"}
-          >
-            {isSearching ? (
-              <RefreshCw className="w-5 h-5 animate-spin" />
-            ) : (
-              <>
-                {orchestratorMode === "orchestrate" ? <Zap className="w-4 h-4 mr-2" /> : <Send className="w-4 h-4 mr-2" />}
-                {orchestratorMode === "orchestrate" ? "Orchestrate" : "Search"}
-              </>
-            )}
-          </Button>
-        </div>
-
-        {documents.length > 0 && orchestratorMode === "simple" && (
-          <div className="mt-4 pt-4 border-t border-white/10">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-white/40">Filter by document:</span>
-              <div className="flex gap-2">
-                <button onClick={() => setSelectedDocs(new Set(documents.map(d => d.id)))} className="text-xs text-blue-400 hover:text-blue-300">
-                  Select All
-                </button>
-                <span className="text-white/20">|</span>
-                <button onClick={() => setSelectedDocs(new Set())} className="text-xs text-blue-400 hover:text-blue-300">
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {documents.map((doc) => (
-                <button
-                  key={doc.id}
-                  onClick={() => toggleDocSelection(doc.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
-                    selectedDocs.has(doc.id)
-                      ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                      : "bg-white/[0.03] text-white/60 border border-white/10 hover:border-white/20"
-                  }`}
-                >
-                  {selectedDocs.has(doc.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                  {doc.name}
-                </button>
-              ))}
-            </div>
-            {selectedDocs.size > 0 && (
-              <p className="mt-2 text-xs text-white/30">
-                Searching in {selectedDocs.size} of {documents.length} documents
-              </p>
-            )}
-          </div>
-        )}
-      </Card>
-
       {/* Results Display */}
       <AnimatePresence>
-        {/* Orchestration Results */}
         {orchestrationResult && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -423,25 +342,25 @@ export default function RAGPage() {
                   <Layers className="w-5 h-5 text-purple-400" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-white">Orchestration Results</h3>
+                  <h3 className="font-bold text-white">Execution Complete</h3>
                   <p className="text-xs text-white/30">
-                    Executed: {orchestrationResult.selected_agents.join(" → ")}
+                    {orchestrationResult.execution_plan.nodes.length} agents executed
                   </p>
                 </div>
               </div>
 
-              {/* Step by Step Results */}
-              <div className="space-y-4 mb-6">
-                {orchestrationResult.results.map((result, idx) => (
-                  <div key={idx} className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 text-xs flex items-center justify-center">
-                        {idx + 1}
-                      </span>
-                      <span className="text-sm font-medium text-purple-400">{result.agent_name}</span>
-                      <span className="text-xs text-white/30">({result.agent_type})</span>
+              {/* Pipeline Status */}
+              <div className="space-y-3 mb-6">
+                {orchestrationResult.pipeline_status.map((status, idx) => (
+                  <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Check className="w-3 h-3 text-green-400" />
+                      <span className="text-xs text-purple-400 font-medium">{status.agent_name}</span>
+                      {status.parallel_group && (
+                        <span className="text-xs text-blue-400">(parallel: {status.parallel_group})</span>
+                      )}
                     </div>
-                    <p className="text-sm text-white/80 whitespace-pre-line pl-8">{result.output}</p>
+                    <p className="text-xs text-white/60 whitespace-pre-line line-clamp-2">{status.output}</p>
                   </div>
                 ))}
               </div>
@@ -466,59 +385,12 @@ export default function RAGPage() {
             </Card>
           </motion.div>
         )}
-
-        {/* Simple Search Results */}
-        {searchResult && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="mb-8"
-          >
-            <Card className="p-6 border-blue-500/20">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-blue-500/20">
-                  <Bot className="w-5 h-5 text-blue-400" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white">AI Response</h3>
-                  <p className="text-xs text-white/30">Based on retrieved chunks</p>
-                </div>
-              </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5">
-                <p className="text-white/80 whitespace-pre-line leading-relaxed">{searchResult.answer}</p>
-              </div>
-              <div className="flex gap-2 mt-4">
-                <Button variant="outline" className="text-xs" onClick={() => handleCopy(searchResult.answer, "result")}>
-                  {copiedId === "result" ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
-                  {copiedId === "result" ? "Copied" : "Copy"}
-                </Button>
-              </div>
-
-              {searchResult.sources && searchResult.sources.length > 0 && (
-                <div className="mt-6 pt-4 border-t border-white/10">
-                  <h4 className="text-sm font-medium text-white/60 mb-3">Source Chunks</h4>
-                  <div className="space-y-2">
-                    {searchResult.sources.map((source, idx) => (
-                      <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/5">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs text-blue-400">{source.document_name}</span>
-                        </div>
-                        <p className="text-xs text-white/60 line-clamp-2">{source.text}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </Card>
-          </motion.div>
-        )}
       </AnimatePresence>
 
       {/* Document Upload Section */}
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-lg font-bold text-white/80">Indexed Documents</h2>
-        <label className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 cursor-pointer hover:bg-blue-500/20 transition-colors">
+        <label className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 cursor-pointer hover:bg-purple-500/20 transition-colors">
           <Upload size={16} />
           <span className="text-sm font-medium">Upload Document</span>
           <input
@@ -531,10 +403,10 @@ export default function RAGPage() {
       </div>
 
       {uploadedFile && (
-        <Card className="p-4 mb-4 border-blue-500/20">
+        <Card className="p-4 mb-4 border-purple-500/20">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <File className="w-8 h-8 text-blue-400" />
+              <File className="w-8 h-8 text-purple-400" />
               <div>
                 <p className="font-medium text-white">{uploadedFile.name}</p>
                 <p className="text-xs text-white/30">{(uploadedFile.size / 1024 / 1024).toFixed(2)} MB</p>
@@ -582,10 +454,10 @@ export default function RAGPage() {
             >
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-xl bg-white/[0.03]">
-                  <FileText className="w-5 h-5 text-blue-400" />
+                  <FileText className="w-5 h-5 text-purple-400" />
                 </div>
                 <div>
-                  <p className="font-medium text-white group-hover:text-blue-400 transition-colors">{doc.name}</p>
+                  <p className="font-medium text-white group-hover:text-purple-400 transition-colors">{doc.name}</p>
                   <div className="flex items-center gap-3 text-xs text-white/30">
                     <span>{doc.chunk_count || 0} chunks</span>
                   </div>

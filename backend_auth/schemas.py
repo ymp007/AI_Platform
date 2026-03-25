@@ -66,8 +66,6 @@ class AgenticPromptResponse(AgenticPromptBase):
 class OrchestrationRequest(BaseModel):
     query: str
     document_ids: Optional[List[str]] = None
-    agent_prompt_ids: Optional[List[str]] = None
-    mode: str = "auto"
 
 
 class AgentExecutionResult(BaseModel):
@@ -77,7 +75,32 @@ class AgentExecutionResult(BaseModel):
     sources: Optional[List[Dict[str, Any]]] = None
 
 
+class ExecutionPlan(BaseModel):
+    flow_type: str
+    description: str
+    nodes: List[Dict[str, Any]]
+    selected_documents: List[str]
+
+
+class PipelineStatus(BaseModel):
+    node_id: str
+    agent_name: str
+    status: str
+    parallel_group: Optional[str] = None
+    output: Optional[str] = None
+
+
 class OrchestrationResponse(BaseModel):
+    execution_plan: ExecutionPlan
     results: List[AgentExecutionResult]
     final_output: str
-    selected_agents: List[str]
+    pipeline_status: List[PipelineStatus]
+
+
+class SingleAgentRequest(BaseModel):
+    agent_id: str
+    agent_name: str
+    agent_type: str
+    input_data: str
+    prompt_content: Optional[str] = None
+    document_ids: Optional[List[str]] = None

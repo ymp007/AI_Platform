@@ -328,23 +328,61 @@ def search_agentic_prompts(
 # ============ ORCHESTRATOR ENDPOINTS ============
 
 
-@app.post("/api/orchestrate", response_model=schemas.OrchestrationResponse)
-def orchestrate_request(
+@app.post("/api/orchestrate/plan", response_model=schemas.ExecutionPlan)
+def create_execution_plan(
     request: schemas.OrchestrationRequest,
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    """Orchestrate multiple agents to process a query"""
+    """Create execution plan - AI decides which agents to use and flow type"""
+    try:
+        orchestrator = get_orchestrator()
+        plan = orchestrator._create_execution_plan(
+            query=request.query,
+            document_ids=request.document_ids or [],
+        )
+        return plan
+    except Exception as e:
+        logger.error(f"Error creating execution plan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/orchestrate/execute", response_model=schemas.OrchestrationResponse)
+def execute_orchestration(
+    request: schemas.OrchestrationRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Execute orchestration with auto-planning"""
     try:
         orchestrator = get_orchestrator()
         result = orchestrator.orchestrate(
             query=request.query,
             document_ids=request.document_ids,
-            agent_prompt_ids=request.agent_prompt_ids,
-            mode=request.mode,
         )
         return result
     except Exception as e:
         logger.error(f"Error in orchestration: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/orchestrate/step", response_model=schemas.AgentExecutionResult)
+def orchestrate_single_step(
+    request: schemas.SingleAgentRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Execute a single agent step in the pipeline"""
+    try:
+        orchestrator = get_orchestrator()
+        result = orchestrator.execute_single_agent(
+            agent_id=request.agent_id,
+            agent_name=request.agent_name,
+            agent_type=request.agent_type,
+            input_data=request.input_data,
+            prompt_content=request.prompt_content,
+            document_ids=request.document_ids,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error in single agent execution: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -163,8 +163,6 @@ export async function searchAgenticPrompts(query: string): Promise<AgenticPrompt
 export interface OrchestrationRequest {
   query: string;
   document_ids?: string[];
-  agent_prompt_ids?: string[];
-  mode?: string;
 }
 
 export interface AgentExecutionResult {
@@ -178,14 +176,60 @@ export interface AgentExecutionResult {
   }>;
 }
 
-export interface OrchestrationResponse {
-  results: AgentExecutionResult[];
-  final_output: string;
-  selected_agents: string[];
+export interface ExecutionPlan {
+  flow_type: string;
+  description: string;
+  nodes: Array<{
+    id: string;
+    agent_id: string;
+    agent_name: string;
+    agent_type: string;
+    depends_on: string[];
+    parallel_group: string | null;
+  }>;
+  selected_documents: string[];
 }
 
-export async function orchestrateRequest(request: OrchestrationRequest): Promise<OrchestrationResponse> {
-  return apiFetch("/orchestrate", {
+export interface PipelineStatus {
+  node_id: string;
+  agent_name: string;
+  status: string;
+  parallel_group?: string;
+  output?: string;
+}
+
+export interface OrchestrationResponse {
+  execution_plan: ExecutionPlan;
+  results: AgentExecutionResult[];
+  final_output: string;
+  pipeline_status: PipelineStatus[];
+}
+
+export async function createExecutionPlan(request: OrchestrationRequest): Promise<ExecutionPlan> {
+  return apiFetch("/orchestrate/plan", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export async function executeOrchestration(request: OrchestrationRequest): Promise<OrchestrationResponse> {
+  return apiFetch("/orchestrate/execute", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export interface SingleAgentRequest {
+  agent_id: string;
+  agent_name: string;
+  agent_type: string;
+  input_data: string;
+  prompt_content?: string;
+  document_ids?: string[];
+}
+
+export async function orchestrateStep(request: SingleAgentRequest): Promise<AgentExecutionResult> {
+  return apiFetch("/orchestrate/step", {
     method: "POST",
     body: JSON.stringify(request),
   });
